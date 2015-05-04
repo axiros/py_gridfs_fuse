@@ -118,7 +118,7 @@ class Operations(llfuse.Operations):
         return self._gen_attr(entry)
 
     def create(self, folder_inode, name, mode, flags, ctx):
-        self.logger.debug("create: %s %s %s %s %s", folder_inode, name, mode, flags)
+        self.logger.debug("create: %s %s %s %s", folder_inode, name, mode, flags)
 
         entry = self._create_entry(folder_inode, name, mode, ctx)
         grid_in = self._create_grid_in(entry)
