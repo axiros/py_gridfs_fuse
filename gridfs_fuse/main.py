@@ -64,6 +64,5 @@ def main():
     options, args = parser.parse_args()
     validate_options(options)
 
-    print options
     ops = operations_factory(options)
     run_fuse_mount(ops, options)
