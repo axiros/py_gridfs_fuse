@@ -1,4 +1,4 @@
-# py_gridfs_fuse
+# python gridfs fuse
 A FUSE wrapper around MongoDB gridfs using python and llfuse.
 
 ## Usage
