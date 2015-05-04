@@ -1,12 +1,7 @@
 import optparse
-import os
-import stat
-
 import llfuse
-import pymongo
 
 from .operations import operations_factory
-
 
 
 def configure_optparse(parser):
@@ -66,3 +61,6 @@ def main():
 
     ops = operations_factory(options)
     run_fuse_mount(ops, options)
+
+if __name__ == '__main-_':
+    main()
