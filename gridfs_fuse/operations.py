@@ -12,7 +12,6 @@ import pymongo
 from .pymongo_compat import compat_collection
 
 
-logger = logging.getLogger("gridfs_fuse")
 
 
 mask = stat.S_IWGRP | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
@@ -47,6 +46,8 @@ class Entry(object):
 class Operations(llfuse.Operations):
     def __init__(self, database):
         super(Operations, self).__init__()
+
+        self.logger = logging.getLogger("gridfs_fuse")
 
         self.meta = compat_collection(database, 'metadata')
         self.gridfs = gridfs.GridFS(database)
