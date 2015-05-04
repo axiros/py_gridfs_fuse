@@ -300,7 +300,8 @@ class Operations(llfuse.Operations):
             new_name)
 
         # Load the entry to move
-        entry = self.lookup(old_folder_inode, old_name)
+        entry_attributes = self.lookup(old_folder_inode, old_name)
+        entry = self._entry_by_inode(entry_attributes.st_ino)
 
         # Load the target directory
         new_folder = self._entry_by_inode(new_folder_inode)
