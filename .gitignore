@@ -1,1 +1,3 @@
 /build/
+*.pyc
+/gridfs_fuse.egg-info/
