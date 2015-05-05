@@ -42,8 +42,8 @@ lvcreate -L 3T -n mongo -i 3 -I 4096 ax /dev/xvdb /dev/xvdc /dev/xvdd
 * mongodb cache size: 10 gigabyte
 
 ### Results
-* write performance: ~46 MB/s (mainly CPU bound)
-* read performance: ~90 MB/s (mixed, hard to say what was the bottleneck)
+* write performance: ~46 MB/s
+* read performance: ~90 MB/s
 
 Write performance was tested by copying 124 files, each having a size of 9 gigabytes and different content.
 Compression factor was about factor three.
