@@ -3,7 +3,7 @@ from setuptools import find_packages
 
 setup(
     name="gridfs_fuse",
-    version='0.1',
+    version='0.1.0',
     install_requires=[
         'llfuse',
         'pymongo',
