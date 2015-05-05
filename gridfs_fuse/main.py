@@ -1,3 +1,4 @@
+import logging
 import optparse
 import llfuse
 
@@ -54,6 +55,10 @@ def run_fuse_mount(ops, options):
 
 
 def main():
+    logging.basicConfig(
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=logging.INFO)
+
     parser = optparse.OptionParser()
     configure_optparse(parser)
     options, args = parser.parse_args()
