@@ -37,16 +37,9 @@ def validate_options(options):
         raise Exception("--mount-point is mandatory")
 
 
-def run_fuse_mount(ops, options):
-    # TODO: Still not sure which options to use
-    # 'allow_other' Regardless who mounts it, all other users can access it
-    # 'default_permissions' Let the kernel do the permission checks
-    # 'nonempty' Allow mount on non empty directory
-
-    llfuse.init(
-        ops,
-        options.mount_point,
-        ['fsname=gridfs_fuse', 'allow_other'])
+def run_fuse_mount(ops, options, mount_opts):
+    mount_opts = ['fsname=gridfs_fuse'] + mount_opts
+    llfuse.init(ops, options.mount_point, mount_opts)
 
     try:
         llfuse.main(single=True)
@@ -65,7 +58,14 @@ def main():
     validate_options(options)
 
     ops = operations_factory(options)
-    run_fuse_mount(ops, options)
+
+    # TODO: Still not sure which options to use
+    # 'allow_other' Regardless who mounts it, all other users can access it
+    # 'default_permissions' Let the kernel do the permission checks
+    # 'nonempty' Allow mount on non empty directory
+    mount_opts = ['default_permissions']
+
+    run_fuse_mount(ops, options, mount_opts)
 
 if __name__ == '__main-_':
     main()
