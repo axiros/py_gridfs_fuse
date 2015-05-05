@@ -25,7 +25,7 @@ class CompatCollection(object):
         return self.coll.insert(doc)
 
     def find_one_and_update(self, query, update):
-        return {'value': self.coll.find_and_modify(query, update)}
+        return self.coll.find_and_modify(query, update)
 
 
 def compat_collection(database, collection_name):
