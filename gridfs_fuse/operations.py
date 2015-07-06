@@ -12,8 +12,6 @@ import pymongo
 from .pymongo_compat import compat_collection
 
 
-
-
 mask = stat.S_IWGRP | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
 
 
