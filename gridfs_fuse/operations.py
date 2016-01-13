@@ -245,7 +245,13 @@ class Operations(llfuse.Operations):
     def read(self, inode, offset, length):
         self.logger.debug("read: %s %s %s", inode, offset, length)
 
-        grid_out = self.gridfs.get(inode)
+        try:
+            grid_out = self.gridfs.get(inode)
+        except gridfs.errors.NoFile:
+            msg = "Read of inode (%s) fails. Gridfs object not found"
+            self.logger.error(msg, inode)
+            raise llfuse.FUSEError(errno.EIO)
+
         grid_out.seek(offset)
         return grid_out.read(length)
 
