@@ -1,2 +1,6 @@
+* 2016-01-13 -- 0.1.1
+ * 'stat' failed on other nodes while a file is created/written.
+ * Better error handling if a file is read while it's still written.
+
 * 2015-05-07 -- 0.1.0
  * Initial version
