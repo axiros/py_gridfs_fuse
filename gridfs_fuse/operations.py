@@ -432,9 +432,10 @@ class Operations(llfuse.Operations):
         # The node doing the write has the current file-object in memory
         # (self.active_writes).
         # => As long as the file is written, other nodes see only size=0
-        if self.gridfs.exists(entry._id):
+        try:
             return self.gridfs.get(entry._id).length
-        return 0
+        except gridfs.errors.NoFile:
+            return 0
 
     def _gen_inode(self):
         query = {"_id": "next_inode"}
