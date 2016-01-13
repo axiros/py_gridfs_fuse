@@ -424,7 +424,17 @@ class Operations(llfuse.Operations):
         if entry.inode in self.active_writes:
             return grid_in_size(self.active_writes[entry.inode])
 
-        return self.gridfs.get(entry._id).length
+        # pymongo creates the entry only when the file is completely written
+        # and *closed* by the writer.
+        # => As long as the file is written (not closed) 'self.gridfs.get'
+        # returns an ERROR on other nodes doing a 'get'.
+        # This happens on other nodes *not* doing the actual write.
+        # The node doing the write has the current file-object in memory
+        # (self.active_writes).
+        # => As long as the file is written, other nodes see only size=0
+        if self.gridfs.exists(entry._id):
+            return self.gridfs.get(entry._id).length
+        return 0
 
     def _gen_inode(self):
         query = {"_id": "next_inode"}
