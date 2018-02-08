@@ -204,10 +204,7 @@ def run_fuse_mount(ops, options, mount_opts):
 
     # start gridfs bindings and run fuse process
     llfuse.init(ops, options.mount_point, mount_opts)
-    if 'foreground' not in opts:
-        pids = daemonize()  # make the program run as non-blocking process
-        logging.debug('Daemonized parent process {} with child process {}'.format(pids))
-   
+    
     # ensure that is single is given then it evaluates to true
     if 'single' in opts and opts['single'] is None:
         opts['single'] = True
@@ -246,6 +243,11 @@ def init(args, configure=configure_parser, validate=validate_options):
     options.mount_opts = flatten(options.mount_opts)
     
     validate(options)
+
+    # have to fork process before creating MongoClient object otherwise safety warnings
+    if 'foreground' not in options.mount_opts:
+        pids = daemonize()  # make the program run as non-blocking process
+        logging.debug('Daemonized parent process {} with child process {}'.format(*pids))
 
     ops = operations_factory(options)
 
