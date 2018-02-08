@@ -1,8 +1,11 @@
 from setuptools import setup
 from setuptools import find_packages
 import os
+import sys
 
 here = os.path.abspath(os.path.dirname(__file__)) + '/'
+
+mount_script = 'mount.gridfs' if sys.platform != 'darwin' else 'mount_gridfs'
 
 setup(
     name="gridfs_fuse",
@@ -17,7 +20,7 @@ setup(
     entry_points={
         'console_scripts': [
             'gridfs_fuse = gridfs_fuse.main:main',
-            'mount.gridfs = gridfs_fuse.main:_mount_dot_fuse_main',
+            '%s = gridfs_fuse.main:_mount_fuse_main' %(mount_script),
         ]
     }
 )

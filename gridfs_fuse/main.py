@@ -264,7 +264,7 @@ def main(args=sys.argv):
     '''Default interface'''
     init(args, configure=configure_parser, validate=validate_options)  # defaults
 
-def _mount_dot_fuse_main(args=sys.argv):
+def _mount_fuse_main(args=sys.argv):
     '''Interface for mount.fuse'''
     init(args, configure=fuse_configurator, validate=fuse_validator) 
 
