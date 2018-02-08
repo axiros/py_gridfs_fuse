@@ -1,3 +1,9 @@
+* 2017-02-06 -- 0.1.2
+ * Added mount.gridfs script which behaves similar to other mount progs
+ * Fixed bug during initial mount when creating new gridfs collection
+ * Allow database and collection to be specified in --mongodb-uri argument
+ * Changed setup.py to read from supporting files (LICENSE, README.md, etc.)
+
 * 2016-01-13 -- 0.1.1
  * 'stat' failed on other nodes while a file is created/written.
  * Better error handling if a file is read while it's still written.
