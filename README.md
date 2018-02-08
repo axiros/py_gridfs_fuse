@@ -9,8 +9,10 @@ gridfs_fuse --mongodb-uri="mongodb://127.0.0.1:27017" --database="gridfs_fuse" -
 
 ### fstab example
 ```fstab
-gridfs#mongodb://127.0.0.1:27017/gridfs_fuse.fs  /mnt/gridfs_fuse  fuse  defaults,allow_other  0  0 
+mongodb://127.0.0.1:27017/gridfs_fuse.fs  /mnt/gridfs_fuse  gridfs  defaults,allow_other  0  0 
 ```
+Note this assumes that you have the `mount.gridfs` program (or `mount_gridfs` on MacOS X) symlinked 
+into `/sbin/` e.g. `sudo ln -s $(which mount.gridfs) /sbin/`
 
 ## Requirements
  * pymongo
