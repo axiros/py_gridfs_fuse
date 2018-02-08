@@ -48,7 +48,6 @@ class HelpFormatter(argparse.HelpFormatter):
                 elif a.dest == 'help':
                     actions_list.insert(0, a)
                 elif a.dest.startswith('_'):
-                    print('skipped {}'.format(a))
                     pass  # hide these 
                 else:
                     actions_list.insert(1, a) if len(actions_list) else actions_list.append(a)
@@ -70,7 +69,6 @@ class OrderedNamespace(argparse.Namespace):
         argparse.Namespace.__init__(self, **kwargs)
 
     def __setattr__(self, name, value):
-        #print("Setting %s -> %s" % (name, value))
         self.__dict__[name] = value
         if name in self._arg_order and hasattr(self, "_arg_order_first_time_through"):
             self.__dict__["_arg_order"] = []
@@ -84,7 +82,6 @@ class OrderedNamespace(argparse.Namespace):
 
     def _latest_of(self, k1, k2):
         try:
-            print self._arg_order
             if self._arg_order.index(k1) > self._arg_order.index(k2):
                 return k1
         except ValueError:
