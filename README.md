@@ -2,13 +2,35 @@
 A FUSE wrapper around MongoDB gridfs using python and llfuse.
 
 ## Usage
+
 ```bash
-gridfs_fuse --mongodb-uri="mongodb://127.0.0.1:27017" --database="gridfs_fuse" --mount-point="/mnt/gridfs_fuse"
+gridfs_fuse --mongodb-uri="mongodb://127.0.0.1:27017" --database="gridfs_fuse" --mount-point="/mnt/gridfs_fuse" # --options=allow_other
 ```
+
+### fstab example
+```fstab
+mongodb://127.0.0.1:27017/gridfs_fuse.fs  /mnt/gridfs_fuse  gridfs  defaults,allow_other  0  0 
+```
+Note this assumes that you have the `mount.gridfs` program (or `mount_gridfs` on MacOS X) symlinked 
+into `/sbin/` e.g. `sudo ln -s $(which mount.gridfs) /sbin/`
 
 ## Requirements
  * pymongo
  * llfuse
+
+## Install
+Ubuntu 16.04:
+```bash
+sudo apt-get install libfuse python-llfuse
+sudo -H pip install py_gridfs_fuse
+```
+
+MacOSX:
+```bash
+brew install osxfuse
+sudo -H pip install py_gridfs_fuse
+```
+
 
 ## Operations supported
  * create/list/delete directories => folder support.

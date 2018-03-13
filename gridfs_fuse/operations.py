@@ -42,14 +42,23 @@ class Entry(object):
 
 
 class Operations(llfuse.Operations):
-    def __init__(self, database):
+    def __init__(self, database, collection='fs', logfile=None, debug=os.environ.get('GRIDFS_FUSE_DEBUG')):
         super(Operations, self).__init__()
 
         self.logger = logging.getLogger("gridfs_fuse")
-
-        self.meta = compat_collection(database, 'metadata')
-        self.gridfs = gridfs.GridFS(database)
-        self.gridfs_files = compat_collection(database, 'fs.files')
+        self.logger.setLevel(logging.DEBUG if debug else logging.ERROR)
+        try:
+            self.handler = logging.FileHandler(logfile)
+            self.handler.setLevel(logging.DEBUG)
+        except:
+            pass
+        #self._readonly = read_only
+        self._database = database
+        self._collection = collection
+        
+        self.meta = compat_collection(database, collection + '.metadata')
+        self.gridfs = gridfs.GridFS(database, collection)
+        self.gridfs_files = compat_collection(database, collection + '.files')
 
         self.active_inodes = collections.defaultdict(int)
         self.active_writes = {}
@@ -58,9 +67,13 @@ class Operations(llfuse.Operations):
         self.logger.debug("open: %s %s", inode, flags)
 
         # Do not allow writes to a existing file
-        if flags & os.O_WRONLY:
+        if flags & os.O_WRONLY: 
             raise llfuse.FUSEError(errno.EACCES)
 
+        # Deny if write mode and filesystem is mounted as read-only
+        #if flags & (os.O_RDWR | os.O_CREAT | os.O_WRONLY | os.O_APPEND) and self._readonly:
+        #    raise llfuse.FUSWERROR(errno.EPERM)
+        
         self.active_inodes[inode] += 1
         return inode
 
@@ -367,7 +380,7 @@ class Operations(llfuse.Operations):
     def _entry_by_inode(self, inode):
         query = {'_id': inode}
         record = self.meta.find_one(query)
-        return self._doc_to_entry(record)
+        return self._doc_to_entry(record or {'childs': []})
 
     def _insert_entry(self, entry):
         doc = self._entry_to_doc(entry)
@@ -478,13 +491,20 @@ def _ensure_indexes(ops):
         ('parent_inode', pymongo.ASCENDING),
         ('filename', pymongo.ASCENDING)
     ]
-    ops.meta.create_index(index, unique=True)
+    try:
+        ops.meta.create_index(index, unique=True)
+    except pymongo.errors.OperationFailure:
+        ops.meta.drop()
+        _ensure_root_inode(ops)
+        _ensure_next_inode_document(ops)
+        ops.meta = compat_collection(ops._database, ops._collection + '.metadata')
+        ops.meta.create_index(index, unique=False)
 
 
 def operations_factory(options):
     client = pymongo.MongoClient(options.mongodb_uri)
 
-    ops = Operations(client[options.database])
+    ops = Operations(client[options.database], collection=options.collection, logfile=options.logfile)
     _ensure_root_inode(ops)
     _ensure_next_inode_document(ops)
     _ensure_indexes(ops)
