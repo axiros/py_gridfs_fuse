@@ -11,8 +11,13 @@ import gridfs
 import pymongo
 from .pymongo_compat import compat_collection
 
+from distutils.version import LooseVersion
+
 
 mask = stat.S_IWGRP | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
+
+
+RETRYABLE_WRITE_MIN_VERSION = LooseVersion("3.6")
 
 
 def grid_in_size(grid_in):
@@ -481,8 +486,28 @@ def _ensure_indexes(ops):
     ops.meta.create_index(index, unique=True)
 
 
+def get_compat_version(client):
+    compatCmd = {"getParameter": 1, "featureCompatibilityVersion": 1}
+    cmdResponse = client.admin.command(compatCmd)
+    compatVersion = cmdResponse["featureCompatibilityVersion"]
+    if "version" in compatVersion:
+        compatVersion = compatVersion["version"]
+
+    return LooseVersion(compatVersion)
+
+
 def operations_factory(options):
-    client = pymongo.MongoClient(options.mongodb_uri)
+    client = pymongo.MongoClient(options.mongodb_uri, retryWrites=True)
+
+    logger = logging.getLogger("gridfs_fuse")
+
+    if get_compat_version(client) < RETRYABLE_WRITE_MIN_VERSION:
+        logger.warning(
+                "Your featureCompatibilityVersion (%s) is lower than the "
+                "required %s for retryable writes to work. Due to this file "
+                "operations might fail if failovers happen.",
+                compatVersion,
+                RETRYABLE_WRITE_MIN_VERSION)
 
     ops = Operations(client[options.database])
     _ensure_root_inode(ops)
