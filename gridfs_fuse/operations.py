@@ -17,7 +17,7 @@ from distutils.version import LooseVersion
 mask = stat.S_IWGRP | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
 
 
-RETRYABLE_WRITE_MIN_VERSION = LooseVersion("3.6")
+RETRY_WRITES_MIN_VERSION = LooseVersion("3.6")
 
 
 def grid_in_size(grid_in):
@@ -487,27 +487,36 @@ def _ensure_indexes(ops):
 
 
 def get_compat_version(client):
-    compatCmd = {"getParameter": 1, "featureCompatibilityVersion": 1}
-    cmdResponse = client.admin.command(compatCmd)
-    compatVersion = cmdResponse["featureCompatibilityVersion"]
-    if "version" in compatVersion:
-        compatVersion = compatVersion["version"]
+    compat_cmd = {"getParameter": 1, "featureCompatibilityVersion": 1}
+    cmd_response = client.admin.command(compat_cmd)
+    compat_version = cmd_response["featureCompatibilityVersion"]
+    if "version" in compat_version:
+        compat_version = compat_version["version"]
 
-    return LooseVersion(compatVersion)
+    return LooseVersion(compat_version)
 
 
 def operations_factory(options):
-    client = pymongo.MongoClient(options.mongodb_uri, retryWrites=True)
-
     logger = logging.getLogger("gridfs_fuse")
 
-    if get_compat_version(client) < RETRYABLE_WRITE_MIN_VERSION:
+    old_pymongo = LooseVersion(pymongo.version) < LooseVersion("3.6.0")
+
+    if old_pymongo:
+        client = pymongo.MongoClient(options.mongodb_uri)
+    else:
+        client = pymongo.MongoClient(options.mongodb_uri, retryWrites=True)
+
+    compat_version = get_compat_version(client)
+    if old_pymongo or compat_version < RETRY_WRITES_MIN_VERSION:
         logger.warning(
                 "Your featureCompatibilityVersion (%s) is lower than the "
-                "required %s for retryable writes to work. Due to this file "
-                "operations might fail if failovers happen.",
-                compatVersion,
-                RETRYABLE_WRITE_MIN_VERSION)
+                "required %s for retryable writes to work. "
+                "Due to this file operations might fail if failovers happen."
+                "Additionally, this feature requires pymongo >= 3.6.0 "
+                "(Yours: %s).",
+                compat_version,
+                RETRY_WRITES_MIN_VERSION,
+                pymongo.version)
 
     ops = Operations(client[options.database])
     _ensure_root_inode(ops)
