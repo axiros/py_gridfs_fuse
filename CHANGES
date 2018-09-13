@@ -1,3 +1,6 @@
+* 2018-09-13 -- 0.2.0
+ * Add more robustness by using retryable write option if possible.
+
 * 2016-01-13 -- 0.1.1
  * 'stat' failed on other nodes while a file is created/written.
  * Better error handling if a file is read while it's still written.
