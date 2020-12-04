@@ -24,6 +24,12 @@ def grid_in_size(grid_in):
     return grid_in._position + grid_in._buffer.tell()
 
 
+class EntryNotFound(Exception):
+    @classmethod
+    def make(cls, inode):
+        return cls("Could not find record in mongo for inode: %s" % inode)
+
+
 class Entry(object):
     def __init__(self, ops, filename, inode, parent_inode, mode, uid, gid):
         self._ops = ops
@@ -87,9 +93,19 @@ class Operations(llfuse.Operations):
         self.logger.debug("readdir: %s %s", inode, off)
 
         entry = self._entry_by_inode(inode)
-        for index, child_inode in enumerate(entry.childs.values()[off:]):
-            child = self._entry_by_inode(child_inode)
-            yield (child.filename, self._gen_attr(child), off + index + 1)
+
+        for child_inode in sorted(entry.childs.values()):
+            if child_inode <= off:
+                continue
+
+            try:
+                child = self._entry_by_inode(child_inode)
+            except EntryNotFound:
+                # Looks like entry got deleted while iterating over the folder
+                continue
+
+            item = (child.filename, self._gen_attr(child), child_inode)
+            yield item
 
     def lookup(self, folder_inode, name):
         self.logger.debug("lookup: %s %s", folder_inode, name)
@@ -371,7 +387,11 @@ class Operations(llfuse.Operations):
 
     def _entry_by_inode(self, inode):
         query = {'_id': inode}
+
         record = self.meta.find_one(query)
+        if record is None:
+            raise EntryNotFound.make(inode)
+
         return self._doc_to_entry(record)
 
     def _insert_entry(self, entry):
