@@ -4,6 +4,7 @@ import stat
 import time
 import errno
 import collections
+import threading
 
 import llfuse
 import gridfs
@@ -52,6 +53,28 @@ class Entry(object):
         return self._id
 
 
+class FileDescriptorFactory(object):
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.next_fd = 1
+        self.active_fd = set()
+
+    def gen(self):
+        with self.lock:
+            while self.next_fd in self.active_fd:
+                self.next_fd = (self.next_fd + 1) % (2 ** 16)
+
+            self.active_fd.add(self.next_fd)
+            return self.next_fd
+
+    def release(self, fd):
+        with self.lock:
+            self.active_fd.discard(fd)
+
+            if not self.active_fd:
+                self.next_fd = 1
+
+
 class Operations(llfuse.Operations):
     def __init__(self, database):
         super(Operations, self).__init__()
@@ -62,8 +85,13 @@ class Operations(llfuse.Operations):
         self.gridfs = gridfs.GridFS(database)
         self.gridfs_files = compat_collection(database, 'fs.files')
 
-        self.active_inodes = collections.defaultdict(int)
+        # For syscalls which return a 'file handle'.
+        # This handle is used later to associate successive calls.
+        self.fd_factory = FileDescriptorFactory()
+
+        # Mapping between fd: GridFile
         self.active_writes = {}
+        self.active_reads = {}
 
     def open(self, inode, flags):
         self.logger.debug("open: %s %s", inode, flags)
@@ -72,8 +100,16 @@ class Operations(llfuse.Operations):
         if flags & os.O_WRONLY:
             raise llfuse.FUSEError(errno.EACCES)
 
-        self.active_inodes[inode] += 1
-        return inode
+        fd = self.fd_factory.gen()
+
+        try:
+            self.active_reads[fd] = self.gridfs.get(inode)
+        except gridfs.errors.NoFile:
+            msg = "Read of inode (%s) fails. Gridfs object not found"
+            self.logger.error(msg, inode)
+            raise llfuse.FUSEError(errno.EIO)
+
+        return fd
 
     def opendir(self, inode):
         """Just to check access, dont care about access => return inode"""
@@ -140,12 +176,11 @@ class Operations(llfuse.Operations):
         self.logger.debug("create: %s %s %s %s", folder_inode, name, mode, flags)
 
         entry = self._create_entry(folder_inode, name, mode, ctx)
-        grid_in = self._create_grid_in(entry)
 
-        self.active_inodes[entry.inode] += 1
-        self.active_writes[entry.inode] = grid_in
+        fd = self.fd_factory.gen()
+        self.active_writes[fd] = self._create_grid_in(entry)
 
-        return (entry.inode, self._gen_attr(entry))
+        return (fd, self._gen_attr(entry))
 
     def _create_grid_in(self, entry):
         gridfs_filename = self._create_full_path(entry)
@@ -263,28 +298,27 @@ class Operations(llfuse.Operations):
         if len(entry.childs) > 0:
             raise llfuse.FUSEError(errno.ENOTEMPTY)
 
-    def read(self, inode, offset, length):
-        self.logger.debug("read: %s %s %s", inode, offset, length)
+    def read(self, fd, offset, length):
+        self.logger.debug("read: %s %s %s", fd, offset, length)
 
-        try:
-            grid_out = self.gridfs.get(inode)
-        except gridfs.errors.NoFile:
-            msg = "Read of inode (%s) fails. Gridfs object not found"
-            self.logger.error(msg, inode)
-            raise llfuse.FUSEError(errno.EIO)
+        if fd not in self.active_reads:
+            self.logger.error("wrong fd on read: %s %s %s", fd, offset, length)
+            raise llfuse.FUSEError(errno.EINVAL)
+
+        grid_out = self.active_reads[fd]
 
         grid_out.seek(offset)
         return grid_out.read(length)
 
-    def write(self, inode, offset, data):
-        self.logger.debug("write: %s %s %s", inode, offset, len(data))
-
+    def write(self, fd, offset, data):
         # Only 'append once' semantics are supported.
+        self.logger.debug("write: %s %s %s", fd, offset, len(data))
 
-        if inode not in self.active_writes:
+        if fd not in self.active_writes:
+            self.logger.error("wrong fd on write: %s %s %s", fd, offset, len(data))
             raise llfuse.FUSEError(errno.EINVAL)
 
-        grid_in = self.active_writes[inode]
+        grid_in = self.active_writes[fd]
 
         if offset != grid_in_size(grid_in):
             raise llfuse.FUSEError(errno.EINVAL)
@@ -292,15 +326,16 @@ class Operations(llfuse.Operations):
         grid_in.write(data)
         return len(data)
 
-    def release(self, inode):
-        self.logger.debug("release: %s", inode)
+    def release(self, fd):
+        self.logger.debug("release: %s", fd)
 
-        self.active_inodes[inode] -= 1
-        if self.active_inodes[inode] == 0:
-            del self.active_inodes[inode]
-            if inode in self.active_writes:
-                self.active_writes[inode].close()
-                del self.active_writes[inode]
+        if fd in self.active_writes:
+            self.active_writes.pop(fd).close()
+
+        if fd in self.active_reads:
+            self.active_reads.pop(fd).close()
+
+        self.fd_factory.release(fd)
 
     def releasedir(self, inode):
         self.logger.debug("releasedir: %s", inode)
