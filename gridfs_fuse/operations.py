@@ -100,14 +100,15 @@ class Operations(llfuse.Operations):
         if flags & os.O_WRONLY:
             raise llfuse.FUSEError(errno.EACCES)
 
-        fd = self.fd_factory.gen()
-
         try:
-            self.active_reads[fd] = self.gridfs.get(inode)
+            reader = self.gridfs.get(inode)
         except gridfs.errors.NoFile:
             msg = "Read of inode (%s) fails. Gridfs object not found"
             self.logger.error(msg, inode)
             raise llfuse.FUSEError(errno.EIO)
+
+        fd = self.fd_factory.gen()
+        self.active_reads[fd] = reader
 
         return fd
 
