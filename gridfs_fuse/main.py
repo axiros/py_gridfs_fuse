@@ -2,7 +2,7 @@ import logging
 import optparse
 import llfuse
 
-from .operations import operations_factory
+from gridfs_fuse.operations import operations_factory
 
 
 def configure_optparse(parser):
