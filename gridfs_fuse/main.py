@@ -42,7 +42,7 @@ def run_fuse_mount(ops, options, mount_opts):
     llfuse.init(ops, options.mount_point, mount_opts)
 
     try:
-        llfuse.main(single=True)
+        llfuse.main(workers=1)
     finally:
         llfuse.close()
 
@@ -66,6 +66,7 @@ def main():
     mount_opts = ['default_permissions']
 
     run_fuse_mount(ops, options, mount_opts)
+
 
 if __name__ == '__main-_':
     main()

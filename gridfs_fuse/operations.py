@@ -42,7 +42,7 @@ class Entry(object):
         self.uid = uid
         self.gid = gid
 
-        self.atime = self.mtime = self.ctime = int(time.time())
+        self.atime = self.mtime = self.ctime = int(time.time_ns())
 
         # Only for directories
         # filename: inode
@@ -93,7 +93,7 @@ class Operations(llfuse.Operations):
         self.active_writes = {}
         self.active_reads = {}
 
-    def open(self, inode, flags):
+    def open(self, inode, flags, ctx):
         self.logger.debug("open: %s %s", inode, flags)
 
         # Do not allow writes to a existing file
@@ -112,7 +112,7 @@ class Operations(llfuse.Operations):
 
         return fd
 
-    def opendir(self, inode):
+    def opendir(self, inode, ctx):
         """Just to check access, dont care about access => return inode"""
         self.logger.debug("opendir: %s", inode)
         return inode
@@ -122,7 +122,7 @@ class Operations(llfuse.Operations):
         self.logger.debug("access: %s %s %s", inode, mode, ctx)
         return True
 
-    def getattr(self, inode):
+    def getattr(self, inode, ctx):
         self.logger.debug("getattr: %s", inode)
         return self._gen_attr(self._entry_by_inode(inode))
 
@@ -144,7 +144,7 @@ class Operations(llfuse.Operations):
             item = (child.filename, self._gen_attr(child), child_inode)
             yield item
 
-    def lookup(self, folder_inode, name):
+    def lookup(self, folder_inode, name, ctx):
         self.logger.debug("lookup: %s %s", folder_inode, name)
 
         if name == '.':
@@ -162,7 +162,7 @@ class Operations(llfuse.Operations):
             else:
                 raise llfuse.FUSEError(errno.ENOENT)
 
-        return self.getattr(inode)
+        return self.getattr(inode, ctx)
 
     def mknod(self, inode_p, name, mode, rdev, ctx):
         self.logger.debug("mknod")
@@ -187,15 +187,20 @@ class Operations(llfuse.Operations):
         gridfs_filename = self._create_full_path(entry)
         return self.gridfs.new_file(_id=entry.inode, filename=gridfs_filename)
 
+    def _encode_if_str(self, str_or_bytes):
+        if isinstance(str_or_bytes, str):
+            return str_or_bytes.encode()
+        return str_or_bytes
+
     def _create_full_path(self, entry):
         # Build the full path for this file.
         # Add the full path to make other tools like
         # mongofiles, mod_gridfs, ngx_gridfs happy
         path = collections.deque()
         while entry._id != llfuse.ROOT_INODE:
-            path.appendleft(entry.filename)
+            path.appendleft(self._encode_if_str(entry.filename))
             entry = self._entry_by_inode(entry.parent_inode)
-        path.appendleft(entry.filename)
+        path.appendleft(self._encode_if_str(entry.filename))
         return os.path.join(*path)
 
     def _create_entry(self, folder_inode, name, mode, ctx):
@@ -210,7 +215,7 @@ class Operations(llfuse.Operations):
 
         return entry
 
-    def setattr(self, inode, attr):
+    def setattr(self, inode, attr, fields, fh, ctx):
         self.logger.debug("setattr: %s %s", inode, attr)
 
         entry = self._entry_by_inode(inode)
@@ -240,7 +245,7 @@ class Operations(llfuse.Operations):
         self._update_entry(entry)
         return self._gen_attr(entry)
 
-    def unlink(self, folder_inode, name):
+    def unlink(self, folder_inode, name, ctx):
         self.logger.debug("unlink: %s %s", folder_inode, name)
 
         self._delete_inode(
@@ -248,7 +253,7 @@ class Operations(llfuse.Operations):
             name,
             self._delete_inode_check_file)
 
-    def rmdir(self, folder_inode, name):
+    def rmdir(self, folder_inode, name, ctx):
         self.logger.debug("rmdir: %s %s", folder_inode, name)
 
         self._delete_inode(
@@ -344,7 +349,7 @@ class Operations(llfuse.Operations):
     def forget(self, inode_list):
         self.logger.debug("forget: %s", inode_list)
 
-    def readlink(self, inode):
+    def readlink(self, inode, ctx):
         self.logger.debug("readlink: %s", inode)
         raise llfuse.FUSEError(errno.ENOSYS)
 
@@ -352,7 +357,7 @@ class Operations(llfuse.Operations):
         self.logger.debug("symlink: %s %s %s", folder_inode, name, target)
         raise llfuse.FUSEError(errno.ENOSYS)
 
-    def rename(self, old_folder_inode, old_name, new_folder_inode, new_name):
+    def rename(self, old_folder_inode, old_name, new_folder_inode, new_name, ctx):
         self.logger.debug(
             "rename: %s %s %s %s",
             old_folder_inode,
@@ -401,7 +406,7 @@ class Operations(llfuse.Operations):
         update = {"$set": {'filename': gridfs_filename}}
         self.gridfs_files.update_one(query, update)
 
-    def link(self, inode, new_parent_inode, new_name):
+    def link(self, inode, new_parent_inode, new_name, ctx):
         self.logger.debug("link: %s %s %s", inode, new_parent_inode, new_name)
         raise llfuse.FUSEError(errno.ENOSYS)
 
@@ -417,7 +422,7 @@ class Operations(llfuse.Operations):
         self.logger.debug("fsyncdir: %s %s", fd, datasync)
         raise llfuse.FUSEError(errno.ENOSYS)
 
-    def statfs(self):
+    def statfs(self, ctx):
         self.logger.debug("statfs")
         raise llfuse.FUSEError(errno.ENOSYS)
 
@@ -442,7 +447,7 @@ class Operations(llfuse.Operations):
     def _entry_to_doc(self, entry):
         doc = dict(vars(entry))
         del doc['_ops']
-        doc['childs'] = entry.childs.items()
+        doc['childs'] = list(entry.childs.items())
         return doc
 
     def _doc_to_entry(self, doc):
@@ -472,9 +477,9 @@ class Operations(llfuse.Operations):
         attr.st_blksize = 512
         attr.st_blocks = (attr.st_size // attr.st_blksize) + 1
 
-        attr.st_atime = int(entry.atime)
-        attr.st_mtime = int(entry.mtime)
-        attr.st_ctime = int(entry.ctime)
+        attr.st_atime_ns = int(entry.atime)
+        attr.st_mtime_ns = int(entry.mtime)
+        attr.st_ctime_ns = int(entry.ctime)
 
         return attr
 
