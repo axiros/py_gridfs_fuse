@@ -23,6 +23,12 @@ def configure_optparse(parser):
         dest='mount_point',
         help="Path where to mount fuse/gridfs wrapper")
 
+    parser.add_option(
+        '--log-level',
+        dest='log_level',
+        default='INFO',
+        help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
+
     return parser
 
 
@@ -36,6 +42,12 @@ def validate_options(options):
     if not options.mount_point:
         raise Exception("--mount-point is mandatory")
 
+    valid_log_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+    if options.log_level.upper() not in valid_log_levels:
+        raise Exception(
+            "--log-level must be one of " + ",".join(valid_log_levels)
+        )
+
 
 def run_fuse_mount(ops, options, mount_opts):
     mount_opts = ['fsname=gridfs_fuse'] + mount_opts
@@ -48,14 +60,14 @@ def run_fuse_mount(ops, options, mount_opts):
 
 
 def main():
-    logging.basicConfig(
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        level=logging.INFO)
-
     parser = optparse.OptionParser()
     configure_optparse(parser)
     options, args = parser.parse_args()
     validate_options(options)
+
+    logging.basicConfig(
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        level=getattr(logging, options.log_level.upper()))
 
     ops = operations_factory(options)
 
