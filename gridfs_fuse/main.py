@@ -68,5 +68,5 @@ def main():
     run_fuse_mount(ops, options, mount_opts)
 
 
-if __name__ == '__main-_':
+if __name__ == '__main__':
     main()
