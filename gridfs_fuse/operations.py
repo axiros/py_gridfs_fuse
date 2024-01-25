@@ -21,6 +21,31 @@ mask = stat.S_IWGRP | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
 RETRY_WRITES_MIN_VERSION = LooseVersion("3.6")
 
 
+def create_mongo_client(mongodb_uri):
+    logger = logging.getLogger("gridfs_fuse")
+
+    old_pymongo = LooseVersion(pymongo.version) < RETRY_WRITES_MIN_VERSION
+
+    if old_pymongo:
+        client = pymongo.MongoClient(mongodb_uri)
+    else:
+        client = pymongo.MongoClient(mongodb_uri, retryWrites=True)
+
+    compat_version = get_compat_version(client)
+    if old_pymongo or compat_version < RETRY_WRITES_MIN_VERSION:
+        logger.warning(
+                "Your featureCompatibilityVersion (%s) is lower than the "
+                "required %s for retryable writes to work. "
+                "Due to this file operations might fail if failovers happen."
+                "Additionally, this feature requires pymongo >= 3.6.0 "
+                "(Yours: %s).",
+                compat_version,
+                RETRY_WRITES_MIN_VERSION,
+                pymongo.version)
+
+    return client
+
+
 def grid_in_size(grid_in):
     return grid_in._position + grid_in._buffer.tell()
 
@@ -42,7 +67,7 @@ class Entry(object):
         self.uid = uid
         self.gid = gid
 
-        self.atime = self.mtime = self.ctime = int(time.time_ns())
+        self.atime_ns = self.mtime_ns = self.ctime_ns = int(time.time_ns())
 
         # Only for directories
         # filename: inode
@@ -187,20 +212,15 @@ class Operations(llfuse.Operations):
         gridfs_filename = self._create_full_path(entry)
         return self.gridfs.new_file(_id=entry.inode, filename=gridfs_filename)
 
-    def _encode_if_str(self, str_or_bytes):
-        if isinstance(str_or_bytes, str):
-            return str_or_bytes.encode()
-        return str_or_bytes
-
     def _create_full_path(self, entry):
         # Build the full path for this file.
         # Add the full path to make other tools like
         # mongofiles, mod_gridfs, ngx_gridfs happy
         path = collections.deque()
         while entry._id != llfuse.ROOT_INODE:
-            path.appendleft(self._encode_if_str(entry.filename))
+            path.appendleft(entry.filename)
             entry = self._entry_by_inode(entry.parent_inode)
-        path.appendleft(self._encode_if_str(entry.filename))
+        path.appendleft(entry.filename)
         return os.path.join(*path)
 
     def _create_entry(self, folder_inode, name, mode, ctx):
@@ -220,7 +240,7 @@ class Operations(llfuse.Operations):
 
         entry = self._entry_by_inode(inode)
 
-        # Now way to change the size of an existing file.
+        # No way to change the size of an existing file.
         if attr.st_size is not None:
             raise llfuse.FUSEError(errno.EINVAL)
 
@@ -228,15 +248,16 @@ class Operations(llfuse.Operations):
             raise llfuse.FUSEError(errno.ENOSYS)
 
         to_set = [
-            'st_mode',
-            'st_uid',
-            'st_gid',
-            'st_atime',
-            'st_mtime',
-            'st_ctime'
+            'st_mode' if fields.update_mode else None,
+            'st_uid' if fields.update_uid else None,
+            'st_gid' if fields.update_gid else None,
+            'st_atime_ns' if fields.update_atime else None,
+            'st_mtime_ns' if fields.update_mtime else None
         ]
 
         for attr_name in to_set:
+            if not attr_name:
+                continue
             val = getattr(attr, attr_name, None)
             if val is not None:
                 target = attr_name[3:]
@@ -477,9 +498,9 @@ class Operations(llfuse.Operations):
         attr.st_blksize = 512
         attr.st_blocks = (attr.st_size // attr.st_blksize) + 1
 
-        attr.st_atime_ns = int(entry.atime)
-        attr.st_mtime_ns = int(entry.mtime)
-        attr.st_ctime_ns = int(entry.ctime)
+        attr.st_atime_ns = int(entry.atime_ns)
+        attr.st_mtime_ns = int(entry.mtime_ns)
+        attr.st_ctime_ns = int(entry.ctime_ns)
 
         return attr
 
@@ -558,26 +579,7 @@ def get_compat_version(client):
 
 
 def operations_factory(options):
-    logger = logging.getLogger("gridfs_fuse")
-
-    old_pymongo = LooseVersion(pymongo.version) < LooseVersion("3.6.0")
-
-    if old_pymongo:
-        client = pymongo.MongoClient(options.mongodb_uri)
-    else:
-        client = pymongo.MongoClient(options.mongodb_uri, retryWrites=True)
-
-    compat_version = get_compat_version(client)
-    if old_pymongo or compat_version < RETRY_WRITES_MIN_VERSION:
-        logger.warning(
-                "Your featureCompatibilityVersion (%s) is lower than the "
-                "required %s for retryable writes to work. "
-                "Due to this file operations might fail if failovers happen."
-                "Additionally, this feature requires pymongo >= 3.6.0 "
-                "(Yours: %s).",
-                compat_version,
-                RETRY_WRITES_MIN_VERSION,
-                pymongo.version)
+    client = create_mongo_client(options.mongodb_uri)
 
     ops = Operations(client[options.database])
     _ensure_root_inode(ops)
