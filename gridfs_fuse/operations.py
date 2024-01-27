@@ -255,9 +255,7 @@ class Operations(llfuse.Operations):
             'st_mtime_ns' if fields.update_mtime else None
         ]
 
-        for attr_name in to_set:
-            if not attr_name:
-                continue
+        for attr_name in filter(bool, to_set):
             val = getattr(attr, attr_name, None)
             if val is not None:
                 target = attr_name[3:]

@@ -2,11 +2,9 @@ import argparse
 import logging
 import llfuse
 
-from bson import Binary
 from gridfs_fuse.operations import operations_factory
 from gridfs_fuse.operations import create_mongo_client
-from gridfs_fuse.pymongo_compat import compat_collection
-from gridfs_fuse.version import __version__
+from gridfs_fuse.migrations import perform_startup_migrations
 
 
 def configure_argparse(parser):
@@ -47,42 +45,6 @@ def run_fuse_mount(ops, options, mount_opts):
         llfuse.main(workers=1)
     finally:
         llfuse.close()
-
-
-def perform_startup_migrations(database):
-    meta_col = compat_collection(database, 'meta')
-    metadata_col = compat_collection(database, 'metadata')
-    fs_files_col = compat_collection(database, 'fs.files')
-
-    version_doc = meta_col.find_one({"_id": "version"})
-    version = version_doc["value"] if version_doc else "0.0.0"
-
-    if version < "0.3.0":
-        for col in [fs_files_col, metadata_col]:
-            for doc in col.find({}):
-                update_fields = {}
-                unset_fields = {}
-                # Filename conversion
-                if "filename" in doc and isinstance(doc["filename"], str):
-                    update_fields["filename"] = Binary(doc["filename"].encode())
-
-                # Timestamp fields migration
-                for ts_field in ['atime', 'mtime', 'ctime']:
-                    if ts_field in doc:
-                        update_fields[f"{ts_field}_ns"] = int(doc[ts_field] * 1e6)
-                        unset_fields[ts_field] = ""
-
-                if update_fields:
-                    col.update_one(
-                        {"_id": doc["_id"]},
-                        {"$set": update_fields, "$unset": unset_fields}
-                    )
-
-        meta_col.update_one(
-            {"_id": "version"},
-            {"$set": {"value": __version__}},
-            upsert=True
-        )
 
 
 def main():

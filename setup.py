@@ -1,13 +1,11 @@
 from setuptools import setup
 from setuptools import find_packages
 
-exec(open("gridfs_fuse/version.py").read())
-
 setup(
     name="gridfs_fuse",
-    version=__version__,
+    version="0.3.0",
     install_requires=[
-        'llfuse',
+        'llfuse>=1.5.0',
         'pymongo',
     ],
     include_package_data=True,
