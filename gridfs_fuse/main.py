@@ -1,40 +1,40 @@
+import argparse
 import logging
-import optparse
 import llfuse
 
-from .operations import operations_factory
+from gridfs_fuse.operations import operations_factory
+from gridfs_fuse.operations import create_mongo_client
+from gridfs_fuse.migrations import perform_startup_migrations
 
 
-def configure_optparse(parser):
-    parser.add_option(
+def configure_argparse(parser):
+    parser.add_argument(
         '--mongodb-uri',
         dest='mongodb_uri',
         default="mongodb://127.0.0.1:27017",
-        help="Connection string for MongoClient. http://goo.gl/abqY9")
+        help="Connection string for MongoClient. http://goo.gl/abqY9",
+        required=True)
 
-    parser.add_option(
+    parser.add_argument(
         '--database',
         dest='database',
         default='gridfs_fuse',
-        help="Name of the database where the filesystem goes")
+        help="Name of the database where the filesystem goes",
+        required=True)
 
-    parser.add_option(
+    parser.add_argument(
         '--mount-point',
         dest='mount_point',
-        help="Path where to mount fuse/gridfs wrapper")
+        help="Path where to mount fuse/gridfs wrapper",
+        required=True)
+
+    parser.add_argument(
+        '--log-level',
+        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+        default="INFO",
+        help="Set the logging level")
 
     return parser
-
-
-def validate_options(options):
-    if not options.mongodb_uri:
-        raise Exception("--mongodb-uri is mandatory")
-
-    if not options.database:
-        raise Exception("--database is mandatory")
-
-    if not options.mount_point:
-        raise Exception("--mount-point is mandatory")
 
 
 def run_fuse_mount(ops, options, mount_opts):
@@ -42,22 +42,25 @@ def run_fuse_mount(ops, options, mount_opts):
     llfuse.init(ops, options.mount_point, mount_opts)
 
     try:
-        llfuse.main(single=True)
+        llfuse.main(workers=1)
     finally:
         llfuse.close()
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    configure_argparse(parser)
+    options = parser.parse_args()
+
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        level=logging.INFO)
-
-    parser = optparse.OptionParser()
-    configure_optparse(parser)
-    options, args = parser.parse_args()
-    validate_options(options)
+        level=getattr(logging, options.log_level.upper()))
 
     ops = operations_factory(options)
+
+    client = create_mongo_client(options.mongodb_uri)
+    db = client[options.database]
+    perform_startup_migrations(db)
 
     # TODO: Still not sure which options to use
     # 'allow_other' Regardless who mounts it, all other users can access it
@@ -67,5 +70,6 @@ def main():
 
     run_fuse_mount(ops, options, mount_opts)
 
-if __name__ == '__main-_':
+
+if __name__ == '__main__':
     main()

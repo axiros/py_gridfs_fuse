@@ -21,6 +21,31 @@ mask = stat.S_IWGRP | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
 RETRY_WRITES_MIN_VERSION = LooseVersion("3.6")
 
 
+def create_mongo_client(mongodb_uri):
+    logger = logging.getLogger("gridfs_fuse")
+
+    old_pymongo = LooseVersion(pymongo.version) < RETRY_WRITES_MIN_VERSION
+
+    if old_pymongo:
+        client = pymongo.MongoClient(mongodb_uri)
+    else:
+        client = pymongo.MongoClient(mongodb_uri, retryWrites=True)
+
+    compat_version = get_compat_version(client)
+    if old_pymongo or compat_version < RETRY_WRITES_MIN_VERSION:
+        logger.warning(
+                "Your featureCompatibilityVersion (%s) is lower than the "
+                "required %s for retryable writes to work. "
+                "Due to this file operations might fail if failovers happen."
+                "Additionally, this feature requires pymongo >= 3.6.0 "
+                "(Yours: %s).",
+                compat_version,
+                RETRY_WRITES_MIN_VERSION,
+                pymongo.version)
+
+    return client
+
+
 def grid_in_size(grid_in):
     return grid_in._position + grid_in._buffer.tell()
 
@@ -42,7 +67,7 @@ class Entry(object):
         self.uid = uid
         self.gid = gid
 
-        self.atime = self.mtime = self.ctime = int(time.time())
+        self.atime_ns = self.mtime_ns = self.ctime_ns = int(time.time_ns())
 
         # Only for directories
         # filename: inode
@@ -93,7 +118,7 @@ class Operations(llfuse.Operations):
         self.active_writes = {}
         self.active_reads = {}
 
-    def open(self, inode, flags):
+    def open(self, inode, flags, ctx):
         self.logger.debug("open: %s %s", inode, flags)
 
         # Do not allow writes to a existing file
@@ -112,7 +137,7 @@ class Operations(llfuse.Operations):
 
         return fd
 
-    def opendir(self, inode):
+    def opendir(self, inode, ctx):
         """Just to check access, dont care about access => return inode"""
         self.logger.debug("opendir: %s", inode)
         return inode
@@ -122,7 +147,7 @@ class Operations(llfuse.Operations):
         self.logger.debug("access: %s %s %s", inode, mode, ctx)
         return True
 
-    def getattr(self, inode):
+    def getattr(self, inode, ctx):
         self.logger.debug("getattr: %s", inode)
         return self._gen_attr(self._entry_by_inode(inode))
 
@@ -144,7 +169,7 @@ class Operations(llfuse.Operations):
             item = (child.filename, self._gen_attr(child), child_inode)
             yield item
 
-    def lookup(self, folder_inode, name):
+    def lookup(self, folder_inode, name, ctx):
         self.logger.debug("lookup: %s %s", folder_inode, name)
 
         if name == '.':
@@ -162,7 +187,7 @@ class Operations(llfuse.Operations):
             else:
                 raise llfuse.FUSEError(errno.ENOENT)
 
-        return self.getattr(inode)
+        return self.getattr(inode, ctx)
 
     def mknod(self, inode_p, name, mode, rdev, ctx):
         self.logger.debug("mknod")
@@ -210,12 +235,12 @@ class Operations(llfuse.Operations):
 
         return entry
 
-    def setattr(self, inode, attr):
+    def setattr(self, inode, attr, fields, fh, ctx):
         self.logger.debug("setattr: %s %s", inode, attr)
 
         entry = self._entry_by_inode(inode)
 
-        # Now way to change the size of an existing file.
+        # No way to change the size of an existing file.
         if attr.st_size is not None:
             raise llfuse.FUSEError(errno.EINVAL)
 
@@ -223,15 +248,14 @@ class Operations(llfuse.Operations):
             raise llfuse.FUSEError(errno.ENOSYS)
 
         to_set = [
-            'st_mode',
-            'st_uid',
-            'st_gid',
-            'st_atime',
-            'st_mtime',
-            'st_ctime'
+            'st_mode' if fields.update_mode else None,
+            'st_uid' if fields.update_uid else None,
+            'st_gid' if fields.update_gid else None,
+            'st_atime_ns' if fields.update_atime else None,
+            'st_mtime_ns' if fields.update_mtime else None
         ]
 
-        for attr_name in to_set:
+        for attr_name in filter(bool, to_set):
             val = getattr(attr, attr_name, None)
             if val is not None:
                 target = attr_name[3:]
@@ -240,7 +264,7 @@ class Operations(llfuse.Operations):
         self._update_entry(entry)
         return self._gen_attr(entry)
 
-    def unlink(self, folder_inode, name):
+    def unlink(self, folder_inode, name, ctx):
         self.logger.debug("unlink: %s %s", folder_inode, name)
 
         self._delete_inode(
@@ -248,7 +272,7 @@ class Operations(llfuse.Operations):
             name,
             self._delete_inode_check_file)
 
-    def rmdir(self, folder_inode, name):
+    def rmdir(self, folder_inode, name, ctx):
         self.logger.debug("rmdir: %s %s", folder_inode, name)
 
         self._delete_inode(
@@ -344,7 +368,7 @@ class Operations(llfuse.Operations):
     def forget(self, inode_list):
         self.logger.debug("forget: %s", inode_list)
 
-    def readlink(self, inode):
+    def readlink(self, inode, ctx):
         self.logger.debug("readlink: %s", inode)
         raise llfuse.FUSEError(errno.ENOSYS)
 
@@ -352,7 +376,7 @@ class Operations(llfuse.Operations):
         self.logger.debug("symlink: %s %s %s", folder_inode, name, target)
         raise llfuse.FUSEError(errno.ENOSYS)
 
-    def rename(self, old_folder_inode, old_name, new_folder_inode, new_name):
+    def rename(self, old_folder_inode, old_name, new_folder_inode, new_name, ctx):
         self.logger.debug(
             "rename: %s %s %s %s",
             old_folder_inode,
@@ -401,7 +425,7 @@ class Operations(llfuse.Operations):
         update = {"$set": {'filename': gridfs_filename}}
         self.gridfs_files.update_one(query, update)
 
-    def link(self, inode, new_parent_inode, new_name):
+    def link(self, inode, new_parent_inode, new_name, ctx):
         self.logger.debug("link: %s %s %s", inode, new_parent_inode, new_name)
         raise llfuse.FUSEError(errno.ENOSYS)
 
@@ -417,7 +441,7 @@ class Operations(llfuse.Operations):
         self.logger.debug("fsyncdir: %s %s", fd, datasync)
         raise llfuse.FUSEError(errno.ENOSYS)
 
-    def statfs(self):
+    def statfs(self, ctx):
         self.logger.debug("statfs")
         raise llfuse.FUSEError(errno.ENOSYS)
 
@@ -442,7 +466,7 @@ class Operations(llfuse.Operations):
     def _entry_to_doc(self, entry):
         doc = dict(vars(entry))
         del doc['_ops']
-        doc['childs'] = entry.childs.items()
+        doc['childs'] = list(entry.childs.items())
         return doc
 
     def _doc_to_entry(self, doc):
@@ -472,9 +496,9 @@ class Operations(llfuse.Operations):
         attr.st_blksize = 512
         attr.st_blocks = (attr.st_size // attr.st_blksize) + 1
 
-        attr.st_atime = int(entry.atime)
-        attr.st_mtime = int(entry.mtime)
-        attr.st_ctime = int(entry.ctime)
+        attr.st_atime_ns = int(entry.atime_ns)
+        attr.st_mtime_ns = int(entry.mtime_ns)
+        attr.st_ctime_ns = int(entry.ctime_ns)
 
         return attr
 
@@ -553,26 +577,7 @@ def get_compat_version(client):
 
 
 def operations_factory(options):
-    logger = logging.getLogger("gridfs_fuse")
-
-    old_pymongo = LooseVersion(pymongo.version) < LooseVersion("3.6.0")
-
-    if old_pymongo:
-        client = pymongo.MongoClient(options.mongodb_uri)
-    else:
-        client = pymongo.MongoClient(options.mongodb_uri, retryWrites=True)
-
-    compat_version = get_compat_version(client)
-    if old_pymongo or compat_version < RETRY_WRITES_MIN_VERSION:
-        logger.warning(
-                "Your featureCompatibilityVersion (%s) is lower than the "
-                "required %s for retryable writes to work. "
-                "Due to this file operations might fail if failovers happen."
-                "Additionally, this feature requires pymongo >= 3.6.0 "
-                "(Yours: %s).",
-                compat_version,
-                RETRY_WRITES_MIN_VERSION,
-                pymongo.version)
+    client = create_mongo_client(options.mongodb_uri)
 
     ops = Operations(client[options.database])
     _ensure_root_inode(ops)
