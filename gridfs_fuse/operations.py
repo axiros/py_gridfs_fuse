@@ -236,16 +236,13 @@ class Operations(llfuse.Operations):
         return entry
 
     def setattr(self, inode, attr, fields, fh, ctx):
-        self.logger.debug("setattr: %s %s", inode, attr)
+        self.logger.debug("setattr: %s", inode)
 
         entry = self._entry_by_inode(inode)
 
         # No way to change the size of an existing file.
-        if attr.st_size is not None:
+        if fields.update_size:
             raise llfuse.FUSEError(errno.EINVAL)
-
-        if attr.st_rdev is not None:
-            raise llfuse.FUSEError(errno.ENOSYS)
 
         to_set = [
             'st_mode' if fields.update_mode else None,
